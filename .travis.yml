@@ -20,6 +20,9 @@ script:
   - asar-tests/asar-dll-test $TRAVIS_BUILD_DIR/build/asar/libasar.* $TRAVIS_BUILD_DIR/tests ../dummy_rom.sfc $TRAVIS_BUILD_DIR/tests_dll_tmp
   # run app test suite
   - asar-tests/asar-app-test asar/asar-standalone $TRAVIS_BUILD_DIR/tests ../dummy_rom.sfc $TRAVIS_BUILD_DIR/tests_app_tmp
+  # run C# wrapper tests
+  - cp asar/libasar.* asar-tests/
+  - asar-tests/asar-csharp-test
 after_success:
   - cd ..
   - if [ $GEN_COVERAGE ]; then lcov -c -d build -o coverage.info; coveralls --verbose --include src/asar --lcov-file coverage.info; fi
@@ -27,3 +30,7 @@ addons:
   apt:
     packages:
       - lcov
+      # I guess I'll put this here for now
+      # I'm 100% sure that we don't need everything from mono-complete
+      # but until I figure out which parts we need this is staying
+      - mono-complete

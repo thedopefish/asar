@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.9.0)
 
 OPTION(ASAR_GEN_EXE_TEST "Build Asar standalone application test suite" ON)
 OPTION(ASAR_GEN_DLL_TEST "Build Asar shared library test suite" ON)
+OPTION(ASAR_GEN_CSHARP_TESTS "Build Asar C# test suite" ON)
 
 # Shared settings for Asar test applications
 
@@ -92,4 +93,24 @@ if(ASAR_GEN_DLL_TEST)
     target_compile_definitions(asar-dll-test PRIVATE ASAR_TEST_DLL)
 
     set_asar_test_shared_properties(asar-dll-test)
+endif()
+
+if(ASAR_GEN_CSHARP_TESTS)
+    set(ASAR_CSHARP_TEST_TARGETS "")
+    list(APPEND ASAR_CSHARP_TEST_TARGETS
+        "${CMAKE_CURRENT_SOURCE_DIR}/test.cs"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../asar-dll-bindings/c_sharp/asar.cs"
+    )
+    if(WIN32)
+        enable_language(CSharp)
+        add_executable(asar-csharp-test ${ASAR_CSHARP_TEST_TARGETS})
+    else()
+        # Use Mono's C# compiler instead
+        add_custom_command(
+            OUTPUT asar-csharp-test
+            COMMAND mcs ARGS -unsafe "-out:asar-csharp-test" ${ASAR_CSHARP_TEST_TARGETS}
+            DEPENDS ${ASAR_CSHARP_TEST_TARGETS}
+        )
+        add_custom_target(asar-csharp-test-t ALL DEPENDS asar-csharp-test)
+    endif()
 endif()

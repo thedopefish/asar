@@ -42,6 +42,10 @@ test_script:
 
       asar-tests\%CONFIGURATION%\asar-app-test.exe asar\%CONFIGURATION%\asar-standalone.exe %APPVEYOR_BUILD_FOLDER%\tests ..\dummy_rom.sfc %APPVEYOR_BUILD_FOLDER%\tests_tmp_app
 
+      copy asar\%CONFIGURATION%\asar.dll asar-tests\%CONFIGURATION%\asar.dll
+
+      asar-tests\%CONFIGURATION%\asar-csharp-test.exe
+
 for:
 -
   matrix:
