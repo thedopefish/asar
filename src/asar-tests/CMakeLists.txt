@@ -101,14 +101,15 @@ if(ASAR_GEN_CSHARP_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/test.cs"
         "${CMAKE_CURRENT_SOURCE_DIR}/../asar-dll-bindings/c_sharp/asar.cs"
     )
-    if(WIN32)
+    if(WIN32 AND NOT MINGW)
         enable_language(CSharp)
         add_executable(asar-csharp-test ${ASAR_CSHARP_TEST_TARGETS})
-    else()
+        target_compile_options(asar-csharp-test PRIVATE "/unsafe" "/langversion:4")
+    elseif(NOT MINGW)
         # Use Mono's C# compiler instead
         add_custom_command(
             OUTPUT asar-csharp-test
-            COMMAND mcs ARGS -unsafe "-out:asar-csharp-test" ${ASAR_CSHARP_TEST_TARGETS}
+            COMMAND mcs ARGS "-unsafe" "-langversion:4" "-out:asar-csharp-test" ${ASAR_CSHARP_TEST_TARGETS}
             DEPENDS ${ASAR_CSHARP_TEST_TARGETS}
         )
         add_custom_target(asar-csharp-test-t ALL DEPENDS asar-csharp-test)

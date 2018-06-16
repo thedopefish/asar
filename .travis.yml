@@ -22,7 +22,7 @@ script:
   - asar-tests/asar-app-test asar/asar-standalone $TRAVIS_BUILD_DIR/tests ../dummy_rom.sfc $TRAVIS_BUILD_DIR/tests_app_tmp
   # run C# wrapper tests
   - cp asar/libasar.* asar-tests/
-  - asar-tests/asar-csharp-test
+  - mono asar-tests/asar-csharp-test
 after_success:
   - cd ..
   - if [ $GEN_COVERAGE ]; then lcov -c -d build -o coverage.info; coveralls --verbose --include src/asar --lcov-file coverage.info; fi
