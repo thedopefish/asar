@@ -16,7 +16,7 @@ class AsarTest
 		Console.WriteLine("C# wrapper version: {0}", expectedapiversion);
 		if(Asar.apiversion() != expectedapiversion) {
 			Console.WriteLine("C# wrapper version and Asar API version don't match");
-			return 1;
+			return 0;
 		}
 		return 0;
 	}
