@@ -5,12 +5,12 @@ compiler:
 os:
   - linux
   - osx
-# this probably won't work but whatever, let's give it a try
-mono: latest
 before_install:
   # pip is annoying on osx and the coverage tool can't parse clang's output, so only run it on linux gcc
   - if [ $TRAVIS_OS_NAME == linux -a $CC == gcc ]; then GEN_COVERAGE=1; fi
   - if [ $GEN_COVERAGE ]; then pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
+  # install mono using homebrew if on osx
+  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono; fi
 install: # misc setup that I didn't want to put in script
   - mkdir build tests_dll_tmp tests_app_tmp
   - cd build
@@ -35,4 +35,4 @@ addons:
       # I guess I'll put this here for now
       # I'm 100% sure that we don't need everything from mono-complete
       # but until I figure out which parts we need this is staying
-      # - mono-complete
+      - mono-complete
