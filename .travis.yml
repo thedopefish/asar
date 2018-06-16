@@ -25,6 +25,9 @@ script:
   # run C# wrapper tests
   - cp asar/libasar.* asar-tests/
   - mono asar-tests/asar-csharp-test
+  # run python tests
+  - cp ../src/asar-dll-bindings/python/asar.py asar/libasar.* ../src/asar-tests/
+  - python3 ../src/asar-tests/test.py
 after_success:
   - cd ..
   - if [ $GEN_COVERAGE ]; then lcov -c -d build -o coverage.info; coveralls --verbose --include src/asar --lcov-file coverage.info; fi

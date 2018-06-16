@@ -46,6 +46,12 @@ test_script:
 
       asar-tests\%CONFIGURATION%\asar-csharp-test.exe
 
+      copy asar\%CONFIGURATION%\asar.dll ..\src\asar-tests\asar.dll
+
+      copy ..\src\asar-dll-bindings\python\asar.py ..\src\asar-tests\asar.py
+
+      C:\Python36\python.exe ..\src\asar-tests\test.py
+
 for:
 -
   matrix:
