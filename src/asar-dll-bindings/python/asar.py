@@ -10,6 +10,7 @@ functions to get info about the patch
 import ctypes
 import enum
 import sys
+import os
 from ctypes import c_int, c_char_p, POINTER
 c_int_ptr = POINTER(c_int)
 
@@ -168,17 +169,23 @@ def init(dll_path=None):
         _asar = _AsarDLL(dll_path)
     else:
         if sys.platform == "win32":
-            _asar = _AsarDLL("asar")
+            # Windows is supposed to search for DLLs in the current assembly's
+            # directory, but that would be the folder where Python is
+            # installed to so lets feed it the correct one manually.
+            libnames = [os.path.join(os.path.dirname(__file__), "asar.dll"),
+                        "asar"]
         else:
             if sys.platform == "darwin":
-                libnames = ["./libasar.dylib", "libasar"]
+                libname = "libasar.dylib"
             else:
-                libnames = ["./libasar.so", "libasar"]
-            for x in libnames:
-                try:
-                    _asar = _AsarDLL(x)
-                except OSError:
-                    continue
+                libname = "libasar.so"
+            libnames = [os.path.join(os.path.dirname(__file__), libname),
+                        "./"+libname, "libasar", libname]
+        for x in libnames:
+            try:
+                _asar = _AsarDLL(x)
+            except OSError:
+                continue
         if _asar is None:
             # Nothing in the search path is valid
             raise OSError("Could not find asar DLL")
