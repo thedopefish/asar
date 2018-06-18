@@ -50,7 +50,7 @@ test_script:
 
       copy ..\src\asar-dll-bindings\python\asar.py ..\src\asar-tests\asar.py
 
-      C:\Python36\python.exe ..\src\asar-tests\test.py
+      C:\Python36-x64\python.exe ..\src\asar-tests\test.py
 
 for:
 -

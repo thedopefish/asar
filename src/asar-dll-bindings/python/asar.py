@@ -187,7 +187,7 @@ def init(dll_path=None):
                 _asar = _AsarDLL(x)
             except OSError:
                 # DON'T MERGE THIS INTO MASTER
-                print("Loading from {} failed:".format(x))
+                print("Loading from {} failed:".format(x), file=sys.stderr)
                 traceback.print_exc()
                 continue
         if _asar is None:
