@@ -11,6 +11,7 @@ import ctypes
 import enum
 import sys
 import os
+import traceback
 from ctypes import c_int, c_char_p, POINTER
 c_int_ptr = POINTER(c_int)
 
@@ -185,6 +186,9 @@ def init(dll_path=None):
             try:
                 _asar = _AsarDLL(x)
             except OSError:
+                # DON'T MERGE THIS INTO MASTER
+                print("Loading from {} failed:".format(x))
+                traceback.print_exc()
                 continue
         if _asar is None:
             # Nothing in the search path is valid
