@@ -9,8 +9,8 @@ before_install:
   # pip is annoying on osx and the coverage tool can't parse clang's output, so only run it on linux gcc
   - if [ $TRAVIS_OS_NAME == linux -a $CC == gcc ]; then GEN_COVERAGE=1; fi
   - if [ $GEN_COVERAGE ]; then pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
-  # install mono using homebrew if on osx
-  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono; fi
+  # install mono and py3 using homebrew if on osx
+  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono python@3; fi
 install: # misc setup that I didn't want to put in script
   - mkdir build tests_dll_tmp tests_app_tmp
   - cd build

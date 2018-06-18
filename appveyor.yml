@@ -50,7 +50,9 @@ test_script:
 
       copy ..\src\asar-dll-bindings\python\asar.py ..\src\asar-tests\asar.py
 
-      C:\Python36-x64\python.exe ..\src\asar-tests\test.py
+      if %PLATFORM%==x64 set PYEXTRA=-x64
+
+      C:\Python36%PYEXTRA%\python.exe ..\src\asar-tests\test.py
 
 for:
 -
