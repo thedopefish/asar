@@ -46,7 +46,7 @@ test_script:
 
       asar-tests\%CONFIGURATION%\asar-csharp-test.exe
 
-      ..\src\asar-tests\test.py asar\%CONFIGURATION%\test.py
+      copy ..\src\asar-tests\test.py asar\%CONFIGURATION%\test.py
 
       copy ..\src\asar-dll-bindings\python\asar.py asar\%CONFIGURATION%\asar.py
 
