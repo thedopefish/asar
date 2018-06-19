@@ -9,8 +9,9 @@ before_install:
   # the coverage tool can't parse clang's output, so only run it on gcc
   - if [ $CC == gcc ]; then GEN_COVERAGE=1; fi
   # install mono, lcov and py3 using homebrew if on osx
-  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono lcov; brew upgrade python; fi
-  - if [ $GEN_COVERAGE ]; then pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
+  # also install proper gcc instead of it just being a shitty wrapper around clang
+  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono lcov gcc; brew upgrade python; fi
+  - if [ $GEN_COVERAGE ]; then python3 -m pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
 install: # misc setup that I didn't want to put in script
   - mkdir build tests_dll_tmp tests_app_tmp
   - cd build
@@ -23,11 +24,11 @@ script:
   # run app test suite
   - asar-tests/asar-app-test asar/asar-standalone $TRAVIS_BUILD_DIR/tests ../dummy_rom.sfc $TRAVIS_BUILD_DIR/tests_app_tmp
   # run C# wrapper tests
-  - cp asar/libasar.* asar-tests/
-  - mono asar-tests/asar-csharp-test
+  - cp asar-tests/asar-csharp-test asar/
+  - mono asar/asar-csharp-test
   # run python tests
-  - cp ../src/asar-dll-bindings/python/asar.py asar/libasar.* ../src/asar-tests/
-  - python3 ../src/asar-tests/test.py
+  - cp ../src/asar-dll-bindings/python/asar.py ../src/asar-tests/test.py asar/
+  - python3 asar/test.py
 after_success:
   - cd ..
   - if [ $GEN_COVERAGE ]; then lcov -c -d build -o coverage.info; coveralls --verbose --include src/asar --lcov-file coverage.info; fi
