@@ -10,7 +10,7 @@ before_install:
   - if [ $TRAVIS_OS_NAME == linux -a $CC == gcc ]; then GEN_COVERAGE=1; fi
   - if [ $GEN_COVERAGE ]; then pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
   # install mono and py3 using homebrew if on osx
-  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono python@3; fi
+  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono; brew upgrade python; fi
 install: # misc setup that I didn't want to put in script
   - mkdir build tests_dll_tmp tests_app_tmp
   - cd build
