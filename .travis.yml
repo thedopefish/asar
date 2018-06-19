@@ -6,11 +6,10 @@ os:
   - linux
   - osx
 before_install:
-  # the coverage tool can't parse clang's output, so only run it on gcc
-  - if [ $CC == gcc ]; then GEN_COVERAGE=1; fi
-  # install mono, lcov and py3 using homebrew if on osx
-  # also install proper gcc instead of it just being a shitty wrapper around clang
-  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono lcov gcc; brew upgrade python; fi
+  # the coverage tool can't parse clang's output and osx is annoying, so only run it on linux gcc
+  - if [ $CC == gcc -a $TRAVIS_OS_NAME == linux ]; then GEN_COVERAGE=1; fi
+  # install mono, and py3 using homebrew if on osx
+  - if [ $TRAVIS_OS_NAME == osx ]; then brew update; brew install mono; brew upgrade python; fi
   - if [ $GEN_COVERAGE ]; then python3 -m pip install --user cpp-coveralls; CMAKE_EXTRA_OPTS="-DASAR_COVERAGE=ON"; fi
 install: # misc setup that I didn't want to put in script
   - mkdir build tests_dll_tmp tests_app_tmp
