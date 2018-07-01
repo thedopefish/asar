@@ -11,7 +11,6 @@ import ctypes
 import enum
 import sys
 import os
-import traceback
 from ctypes import c_int, c_char_p, POINTER
 c_int_ptr = POINTER(c_int)
 
@@ -206,11 +205,11 @@ def init(dll_path=None):
         for x in libnames:
             try:
                 _asar = _AsarDLL(x)
-            except OSError:
+            except OSError as e:
                 # DON'T MERGE THIS INTO MASTER
-                print("Loading from {} failed:".format(x), file=sys.stderr)
-                traceback.print_exc()
+                print("Loading from {} failed: {}".format(x, e))
                 continue
+            break
         if _asar is None:
             # Nothing in the search path is valid
             raise OSError("Could not find asar DLL")
