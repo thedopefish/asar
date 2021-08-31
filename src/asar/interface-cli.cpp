@@ -138,6 +138,8 @@ int main(int argc, char * argv[])
 			"                   Display version information.\n\n"
 			" -v, --verbose     \n"
 			"                   Enable verbose mode.\n\n"
+			" -h, --header     \n"
+			"                   Assume the ROM includes a header.\n\n"
 			" --symbols=<none/wla/nocash>\n"
 			"                   Specifies the format of the symbols output file. (Default is none for no symbols file)\n\n"
 			" --symbols-path=<filename>\n"
@@ -165,6 +167,7 @@ int main(int argc, char * argv[])
 		ignoretitleerrors=false;
 		string par;
 		bool verbose=libcon_interactive;
+		bool has_header=false;
 		string symbols="";
 		string symfilename="";
 
@@ -180,6 +183,7 @@ int main(int argc, char * argv[])
 
 			if (par=="--no-title-check") ignoretitleerrors=true;
 			else if (par == "-v" || par=="--verbose") verbose=true;
+			else if (par == "-h" || par=="--header") has_header=true;
 			else if (checkstartmatch(par, "--symbols="))
 			{
 				if (par == "--symbols=none") symbols = "";
@@ -347,7 +351,7 @@ int main(int argc, char * argv[])
 			}
 			fclose(f);
 		}
-		if (!openrom(romname, false))
+		if (!openrom(romname, false, has_header))
 		{
 			thisfilename= nullptr;
 			asar_throw_error(pass, error_type_null, openromerror);

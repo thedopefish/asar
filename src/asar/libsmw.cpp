@@ -404,7 +404,7 @@ int getsnesfreespace(int size, bool isforcode, bool autoexpand, bool respectbank
 	return pctosnes(getpcfreespace(size, isforcode, autoexpand, respectbankborders, align, freespacebyte));
 }
 
-bool openrom(const char * filename, bool confirm)
+bool openrom(const char * filename, bool confirm, bool header)
 {
 	closerom();
 	thisfile=fopen(filename, "r+b");
@@ -414,12 +414,6 @@ bool openrom(const char * filename, bool confirm)
 		return false;
 	}
 	fseek(thisfile, 0, SEEK_END);
-	header=false;
-	if (strlen(filename)>4)
-	{
-		const char * fnameend=strchr(filename, '\0')-4;
-		header=(!stricmp(fnameend, ".smc"));
-	}
 	romlen=ftell(thisfile)-(header*512);
 	if (romlen<0) romlen=0;
 	fseek(thisfile, header*512, SEEK_SET);
