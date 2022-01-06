@@ -34,6 +34,8 @@ static string struct_name;
 static string struct_parent;
 static bool in_struct = false;
 static bool in_sub_struct = false;
+static bool static_struct = false;
+static bool in_spcblock = false;
 
 assocarr<snes_struct> structs;
 
@@ -49,6 +51,21 @@ static enum {
 	ratsmeta_allow,
 	ratsmeta_used,
 } ratsmetastate=ratsmeta_ban;
+
+enum spcblock_type{
+	spcblock_nspc,
+	spcblock_custom
+};
+
+struct spcblock_data{
+	unsigned int destination;
+	spcblock_type type;
+	string macro_name;
+
+	unsigned int execute_address;
+	unsigned int size_address;
+	mapper_t old_mapper;
+}spcblock;
 
 int snestopc_pick(int addr)
 {
@@ -261,7 +278,7 @@ int getlenfromchar(char c)
 	return -1;
 }
 
-assocarr<unsigned int> labels;
+assocarr<snes_label> labels;
 static autoarray<int> poslabels;
 static autoarray<int> neglabels;
 
@@ -273,6 +290,7 @@ autoarray<string>* macrosublabels;
 
 // randomdude999: ns is still the string to prefix to all labels, it's calculated whenever namespace_list is changed
 string ns;
+string ns_backup;
 autoarray<string> namespace_list;
 
 //bool fastrom=false;
@@ -448,10 +466,10 @@ static string labelname(const char ** rawname, bool define=false)
 #undef deref_rawname
 }
 
-inline bool labelvalcore(const char ** rawname, unsigned int * rval, bool define, bool shouldthrow)
+inline bool labelvalcore(const char ** rawname, snes_label * rval, bool define, bool shouldthrow)
 {
 	string name=labelname(rawname, define);
-	unsigned int rval_=0;
+	snes_label rval_;
 	if (ns && labels.exists(STR ns+name)) {rval_ = labels.find(STR ns+name);}
 	else if (labels.exists(name)) {rval_ = labels.find(name);}
 	else
@@ -460,7 +478,7 @@ inline bool labelvalcore(const char ** rawname, unsigned int * rval, bool define
 		{
 			asar_throw_error(1, error_type_block, error_id_label_not_found, name.data());
 		}
-		if (rval) *rval=(unsigned int)-1;
+		if (rval) { rval->pos = (unsigned int)-1; rval->is_static = false; }
 		return false;
 	}
 	if (rval)
@@ -471,51 +489,56 @@ inline bool labelvalcore(const char ** rawname, unsigned int * rval, bool define
 	return true;
 }
 
-unsigned int labelval(const char ** rawname, bool define)
+snes_label labelval(const char ** rawname, bool define)
 {
-	unsigned int rval;
+	snes_label rval;
 	labelvalcore(rawname, &rval, define, true);
 	return rval;
 }
 
-unsigned int labelval(char ** rawname, bool define)
+snes_label labelval(char ** rawname, bool define)
 {
-	unsigned int rval;
+	snes_label rval;
 	labelvalcore(const_cast<const char**>(rawname), &rval, define, true);
 	return rval;
 }
 
-unsigned int labelval(string name, bool define)
+snes_label labelval(string name, bool define)
 {
 	const char * rawname=name;
-	unsigned int rval;
+	snes_label rval;
 	labelvalcore(&rawname, &rval, define, true);
 	return rval;
 }
 
-bool labelval(const char ** rawname, unsigned int * rval, bool define)
+bool labelval(const char ** rawname, snes_label * rval, bool define)
 {
 	return labelvalcore(rawname, rval, define, false);
 }
 
-bool labelval(char ** rawname, unsigned int * rval, bool define)
+bool labelval(char ** rawname, snes_label * rval, bool define)
 {
 	return labelvalcore(const_cast<const char**>(rawname), rval, define, false);
 }
 
-bool labelval(string name, unsigned int * rval, bool define)
+bool labelval(string name, snes_label * rval, bool define)
 {
 	const char * str=name;
 	return labelvalcore(&str, rval, define, false);
 }
 
-static void setlabel(string name, int loc=-1)
+static void setlabel(string name, int loc=-1, bool is_static=false)
 {
 	if (loc==-1)
 	{
 		verifysnespos();
 		loc=snespos;
 	}
+
+	snes_label label_data;
+	label_data.pos = (unsigned int)loc;
+	label_data.is_static = is_static;
+
 	unsigned int labelpos;
 	if (pass==0)
 	{
@@ -524,17 +547,17 @@ static void setlabel(string name, int loc=-1)
 			movinglabelspossible=true;
 			asar_throw_error(0, error_type_block, error_id_label_redefined, name.data());
 		}
-		labels.create(name) = (unsigned int)loc;
+		labels.create(name) = label_data;
 	}
 	else if (pass==1)
 	{
-		labels.create(name) = (unsigned int)loc;
+		labels.create(name) = label_data;
 	}
 	else if (pass==2)
 	{
 		//all label locations are known at this point, add a sanity check
 		if (!labels.exists(name)) asar_throw_error(2, error_type_block, error_id_label_on_third_pass);
-		labelpos = labels.find(name);
+		labelpos = labels.find(name).pos;
 		if ((int)labelpos != loc && !movinglabelspossible)
 		{
 			if((unsigned int)loc < labelpos && (unsigned int)loc>>16 != labelpos>>16)  asar_throw_error(2, error_type_block, error_id_label_ambiguous, name.raw());
@@ -588,6 +611,16 @@ static int pushpcnum;
 
 static autoarray<int> basestack;
 static int basestacknum;
+
+struct ns_pushable {
+	string ns;
+	autoarray<string> namespace_list;
+	bool nested_namespaces;
+};
+
+static autoarray<ns_pushable> pushns;
+static int pushnsnum;
+
 
 static unsigned char fillbyte[12];
 static unsigned char padbyte[12];
@@ -668,6 +701,8 @@ void initstuff()
 	cleartable();
 	pushpc.reset();
 	pushpcnum=0;
+	pushns.reset();
+	pushnsnum = 0;
 	bytes=0;
 	memset(fillbyte, 0, sizeof(fillbyte));
 	memset(padbyte, 0, sizeof(padbyte));
@@ -682,7 +717,7 @@ void initstuff()
 	numopcodes=0;
 	specifiedasarver = false;
 	incsrcdepth = 0;
-	
+
 	optimizeforbank = -1;
 	optimize_dp = optimize_dp_flag::NONE;
 	dp_base = 0;
@@ -690,6 +725,7 @@ void initstuff()
 
 	in_struct = false;
 	in_sub_struct = false;
+	in_spcblock = false;
 
 	math_pri=false;
 	math_round=true;
@@ -726,8 +762,10 @@ void finishpass()
 	pull_warnings(false);
 
 //defines.traverse(nerf);
+	if(in_spcblock) asar_throw_error(0, error_type_block, error_id_missing_endspcblock);
 	if (in_struct || in_sub_struct) asar_throw_error(pass, error_type_null, error_id_struct_without_endstruct);
 	else if (pushpcnum && pass == 0) asar_throw_error(pass, error_type_null, error_id_pushpc_without_pullpc);
+	else if (pushnsnum && pass == 0) asar_throw_error(pass, error_type_null, error_id_pushns_without_pullns);
 	freespaceend();
 	if (arch==arch_65816) asend_65816();
 	if (arch==arch_spc700) asend_spc700();
@@ -774,7 +812,7 @@ static bool addlabel(const char * label, int pos=-1, bool global_label = false)
 		else if (global_label) return false;
 		if (label[0]) asar_throw_error(0, error_type_block, error_id_broken_label_definition);
 		if (ns && !global_label) name=STR ns+name;
-		setlabel(name, pos);
+		setlabel(name, pos, ((in_struct || in_sub_struct) && static_struct));
 		return true;
 	}
 	return false;
@@ -812,6 +850,88 @@ static void pop_pc()
 	freespaceid=pushpc[pushpcnum].freeid;
 	freespaceextra=pushpc[pushpcnum].freeex;
 	freespacestart=pushpc[pushpcnum].freest;
+}
+
+
+string handle_print(char* input)
+{
+	if (!confirmqpar(input)) asar_throw_error(0, error_type_block, error_id_mismatched_parentheses);
+	string out;
+	autoptr<char**> pars = qpsplit(input, ",");
+	for (int i = 0; pars[i]; i++)
+	{
+		if (0);
+		else if (pars[i][0] == '"') out += safedequote(pars[i]);
+		else if (!stricmp(pars[i], "bytes")) out += dec(bytes);
+		else if (!stricmp(pars[i], "freespaceuse")) out += dec(freespaceuse);
+		else if (!stricmp(pars[i], "pc")) out += hex6((unsigned int)(snespos & 0xFFFFFF));
+		else if (!strncasecmp(pars[i], "bin(", strlen("bin(")) ||
+			!strncasecmp(pars[i], "dec(", strlen("dec(")) ||
+			!strncasecmp(pars[i], "hex(", strlen("hex(")) ||
+			!strncasecmp(pars[i], "double(", strlen("double(")))
+		{
+			char * arg1pos = strchr(pars[i], '(') + 1;
+			char * endpos = strchr(arg1pos, '\0');
+			while (*endpos == ' ' || *endpos == '\0') endpos--;
+			if (*endpos != ')') asar_throw_error(0, error_type_block, error_id_invalid_print_function_syntax);
+			string paramstr = string(arg1pos, (int)(endpos - arg1pos));
+
+			int numargs;
+			autoptr<char**> params = qpsplit(paramstr.temp_raw(), ",", &numargs);
+			if (numargs > 2) asar_throw_error(0, error_type_block, error_id_wrong_num_parameters);
+			int precision = 0;
+			bool hasprec = numargs == 2;
+			if (hasprec)
+			{
+				precision = getnum64(params[1]);
+				if (precision < 0) precision = 0;
+				if (precision > 64) precision = 64;
+			}
+			*(arg1pos - 1) = '\0'; // allows more convenient comparsion functions
+			if (!stricmp(pars[i], "bin"))
+			{
+				// sadly printf doesn't have binary, so let's roll our own
+				int64_t value = getnum64(params[0]);
+				char buffer[65];
+				if (value < 0) {
+					out += '-';
+					value = -value;
+					// decrement precision because we've output one char already
+					precision -= 1;
+					if (precision<0) precision = 0;
+				}
+				for (int j = 0; j < 64; j++) {
+					buffer[63 - j] = '0' + ((value & (1ull << j)) >> j);
+				}
+				buffer[64] = 0;
+				int startidx = 0;
+				while (startidx < 64 - precision && buffer[startidx] == '0') startidx++;
+				if (startidx == 64) startidx--; // always want to print at least one digit
+				out += buffer + startidx;
+			}
+			else if (!stricmp(pars[i], "dec"))
+			{
+				int64_t value = getnum64(params[0]);
+				char buffer[65];
+				snprintf(buffer, 65, "%0*" PRId64, precision, value);
+				out += buffer;
+			}
+			else if (!stricmp(pars[i], "hex"))
+			{
+				int64_t value = getnum64(params[0]);
+				char buffer[65];
+				snprintf(buffer, 65, "%0*" PRIX64, precision, value);
+				out += buffer;
+			}
+			else if (!stricmp(pars[i], "double"))
+			{
+				if (!hasprec) precision = 5;
+				out += ftostrvar(getnumdouble(params[0]), precision);
+			}
+		}
+		else asar_throw_error(2, error_type_block, error_id_unknown_variable);
+	}
+	return out;
 }
 
 
@@ -881,8 +1001,8 @@ void assembleblock(const char * block, bool isspecialline)
 	{
 		if(is("if") && moreonline) fakeendif++;
 		if (emulatexkas) asar_throw_warning(0, warning_id_convert_to_asar);
-		const char * errmsg= nullptr;
-		whiletracker wstatus;		
+		string errmsg;
+		whiletracker wstatus;
 		wstatus.startline = thisline;
 		wstatus.iswhile = false;
 		wstatus.cond = false;
@@ -890,11 +1010,22 @@ void assembleblock(const char * block, bool isspecialline)
 		whiletracker& addedwstatus = (whilestatus[numif] = wstatus);
 		if (is("assert"))
 		{
-			char * rawerrmsg=strqrchr(word[numwords-1], ',');
-			if (rawerrmsg)
+			autoptr<char**> tokens = qpsplit(word[numwords - 1], ",");
+			if (tokens[0] != NULL && tokens[1] != NULL)
 			{
-				*rawerrmsg=0;
-				errmsg= safedequote(rawerrmsg+1);
+				string rawerrmsg;
+				size_t pos = 1;
+				while (tokens[pos])
+				{
+					rawerrmsg += tokens[pos];
+					if (tokens[pos + 1] != NULL)
+					{
+						rawerrmsg += ",";
+					}
+					pos++;
+				}
+
+				errmsg = handle_print(rawerrmsg.raw());
 			}
 		}
 		if (numtrue!=numif && !(is("elseif") && numtrue+1==numif))
@@ -919,13 +1050,13 @@ void assembleblock(const char * block, bool isspecialline)
 				{
 					asar_throw_warning(0, warning_id_feature_deprecated, "old style conditional negation (if !condition) ", "the not function");
 					double val = getnumdouble(nextword[0]+1);
-					if (foundlabel && !isassert) asar_throw_error(1, error_type_block, error_id_label_in_conditional, word[0]);
+					if (foundlabel && !foundlabel_static && !isassert) asar_throw_error(0, error_type_block, error_id_label_in_conditional, word[0]);
 					thiscond = !(val > 0);
 				}
 				else
 				{
 					double val = getnumdouble(nextword[0]);
-					if (foundlabel && !isassert) asar_throw_error(1, error_type_block, error_id_label_in_conditional, word[0]);
+					if (foundlabel && !foundlabel_static && !isassert) asar_throw_error(0, error_type_block, error_id_label_in_conditional, word[0]);
 					thiscond = (val > 0);
 				}
 
@@ -940,9 +1071,9 @@ void assembleblock(const char * block, bool isspecialline)
 			{
 				if (!nextword[2]) asar_throw_error(0, error_type_block, error_id_broken_conditional, word[0]);
 				double par1=getnumdouble(nextword[0]);
-				if (foundlabel && !isassert) asar_throw_error(1, error_type_block, error_id_label_in_conditional, word[0]);
+				if (foundlabel && !foundlabel_static && !isassert) asar_throw_error(0, error_type_block, error_id_label_in_conditional, word[0]);
 				double par2=getnumdouble(nextword[2]);
-				if (foundlabel && !isassert) asar_throw_error(1, error_type_block, error_id_label_in_conditional, word[0]);
+				if (foundlabel && !foundlabel_static && !isassert) asar_throw_error(0, error_type_block, error_id_label_in_conditional, word[0]);
 				if(0);
 				else if (!strcmp(nextword[1], ">"))  thiscond=(par1>par2);
 				else if (!strcmp(nextword[1], "<"))  thiscond=(par1<par2);
@@ -973,9 +1104,9 @@ void assembleblock(const char * block, bool isspecialline)
 		//if (numwords==4)
 		//{
 		//	int par1=getnum(word[1]);
-		//	if (foundlabel) error(1, S"Label in "+lower(word[0])+" command");
+		//	if (foundlabel && !foundlabel_static) error(0, S"Label in "+lower(word[0])+" command");
 		//	int par2=getnum(word[3]);
-		//	if (foundlabel) error(1, S"Label in "+lower(word[0])+" command");
+		//	if (foundlabel && !foundlabel_static) error(0, S"Label in "+lower(word[0])+" command");
 		//	if(0);
 		//	else if (!strcmp(word[2], ">"))  cond=(par1>par2);
 		//	else if (!strcmp(word[2], "<"))  cond=(par1<par2);
@@ -990,13 +1121,13 @@ void assembleblock(const char * block, bool isspecialline)
 		//else if (*par=='!')
 		//{
 		//	int val=getnum(par+1);
-		//	if (foundlabel) error(1, "Label in if or assert command");
+		//	if (foundlabel && !foundlabel_static) error(0, "Label in if or assert command");
 		//	cond=!(val>0);
 		//}
 		//else
 		//{
 		//	int val=getnum(par);
-		//	if (foundlabel) error(1, "Label in if or assert command");
+		//	if (foundlabel && !foundlabel_static) error(0, "Label in if or assert command");
 		//	cond=(val>0);
 		//}
 
@@ -1103,11 +1234,16 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is1("error"))
 	{
-		asar_throw_error(0, error_type_block, error_id_error_command, (string(": ") + safedequote(par)).data());
+		string out = handle_print(par);
+		// RPG Hacker: This used to be on pass 0, which had its merits (you don't want to miss a potentially critical
+		// user-generated error, just because a bazillion other errors are thrown in passes before it). However, I
+		// don't see how to support print functions with this without moving it to pass 2. Suggestions are welcome.
+		asar_throw_error(2, error_type_block, error_id_error_command, (string(": ") + out).data());
 	}
 	else if (is1("warn"))
 	{
-		asar_throw_warning(2, warning_id_warn_command, (string(": ") + safedequote(par)).data());
+		string out = handle_print(par);
+		asar_throw_warning(2, warning_id_warn_command, (string(": ") + out).data());
 	}
 	else if (is1("warnings"))
 	{
@@ -1216,7 +1352,7 @@ void assembleblock(const char * block, bool isspecialline)
 				check_half_banks_crossed = false;
 			}
 			else asar_throw_error(0, error_type_block, error_id_invalid_check);
-			
+
 		}
 		else
 		{
@@ -1283,7 +1419,7 @@ void assembleblock(const char * block, bool isspecialline)
 		if (!asarverallowed) asar_throw_error(0, error_type_block, error_id_start_of_file);
 		if (istoplevel)
 		{
-			if (par) asar_throw_error(pass, error_type_fatal, error_id_cant_be_main_file, (string("The main file is '") + STR par + STR "'.").data());
+			if (par) asar_throw_error(pass, error_type_fatal, error_id_cant_be_main_file, (string(" The main file is '") + STR par + STR "'.").data());
 			else asar_throw_error(pass, error_type_fatal, error_id_cant_be_main_file, "");
 		}
 	}
@@ -1334,13 +1470,13 @@ void assembleblock(const char * block, bool isspecialline)
 		if (word[0][0]=='\'' && word[0][1] && word[0][2]=='\'' && word[0][3]=='\0')
 		{
 			table.table[(unsigned char)word[0][1]]=getnum(word[2]);
-			if (foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+			if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 			return;
 		}
 		// randomdude999: int cast b/c i'm too lazy to also mess with making setlabel()
 		// unsigned, besides it wouldn't matter anyways.
 		int num=(int)getnum(word[2]);
-		if (foundlabel) asar_throw_error(0, error_type_block, error_id_label_cross_assignment);
+		if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_label_cross_assignment);
 
 		const char* newlabelname = word[0];
 		bool ismacro = false;
@@ -1367,11 +1503,12 @@ void assembleblock(const char * block, bool isspecialline)
 
 		completename += newlabelname;
 
-		setlabel(completename, num);
+		setlabel(ns + completename, num, true);
 	}
 	else if (assemblemapper(word, numwords)) {}
 	else if (is1("org"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		freespaceend();
 		unsigned int num=getnum(par);
 		if (forwardlabel) asar_throw_error(0, error_type_block, error_id_org_label_forward);
@@ -1387,6 +1524,7 @@ void assembleblock(const char * block, bool isspecialline)
 #define ret_error_params(errid, ...) { asar_throw_error(0, error_type_block, errid, __VA_ARGS__); return; }
 	else if (is("struct"))
 	{
+		//verifysnespos();
 		if (in_struct || in_sub_struct) ret_error(error_id_nested_struct);
 		if (numwords < 2) ret_error(error_id_missing_struct_params);
 		if (numwords > 4) ret_error(error_id_too_many_struct_params);
@@ -1394,13 +1532,17 @@ void assembleblock(const char * block, bool isspecialline)
 
 		if (structs.exists(word[1]) && pass == 0) ret_error_params(error_id_struct_redefined, word[1]);
 
+		static_struct = false;
 		old_snespos = snespos;
 		old_startpos = startpos;
 		old_optimizeforbank = optimizeforbank;
 		unsigned int base = 0;
 		if (numwords == 3)
 		{
+			static_struct = true;
 			base = getnum(word[2]);
+
+			if (foundlabel && !foundlabel_static) static_struct = false;
 		}
 
 		bool old_in_struct = in_struct;
@@ -1426,6 +1568,7 @@ void assembleblock(const char * block, bool isspecialline)
 			if (!structs.exists(tmp_struct_parent)) ret_error_params_cleanup(error_id_struct_not_found, tmp_struct_parent.data());
 			snes_struct structure = structs.find(tmp_struct_parent);
 
+			static_struct = structure.is_static;
 			struct_parent = tmp_struct_parent;
 			snespos = structure.base_end;
 			startpos = structure.base_end;
@@ -1437,6 +1580,8 @@ void assembleblock(const char * block, bool isspecialline)
 
 		struct_name = word[1];
 		struct_base = snespos;
+		realsnespos = 0;
+		realstartpos = 0;
 #undef ret_error_cleanup
 #undef ret_error_params_cleanup
 	}
@@ -1453,6 +1598,7 @@ void assembleblock(const char * block, bool isspecialline)
 		structure.base_end = snespos;
 		structure.struct_size = alignment * ((snespos - struct_base + alignment - 1) / alignment);
 		structure.object_size = structure.struct_size;
+		structure.is_static = static_struct;
 
 		if (in_struct)
 		{
@@ -1477,8 +1623,106 @@ void assembleblock(const char * block, bool isspecialline)
 		snespos = old_snespos;
 		startpos = old_startpos;
 		optimizeforbank = old_optimizeforbank;
+		static_struct = false;
 	}
 #undef ret_error
+	else if(is("spcblock"))
+	{
+		//banned features when active: org, freespace(and variants), arch, mapper,namespace,pushns
+		if(arch != arch_spc700)  asar_throw_error(0, error_type_block, error_id_spcblock_bad_arch);
+		if(in_struct || in_sub_struct) asar_throw_error(0, error_type_block, error_id_spcblock_inside_struct);
+		if(numwords < 2)  asar_throw_error(0, error_type_block, error_id_spcblock_too_few_args);
+		if(numwords > 4)  asar_throw_error(0, error_type_block, error_id_spcblock_too_many_args);
+
+		spcblock.destination = getnum(par);
+		spcblock.type = spcblock_nspc;
+		spcblock.macro_name = "";
+
+		if (spcblock.destination&~0xFFFF) asar_throw_error(0, error_type_block, error_id_snes_address_out_of_bounds, hex6(spcblock.destination).data());
+
+		if(numwords == 3)
+		{
+			if(!stricmp(word[2], "nspc")) spcblock.type = spcblock_nspc;
+			else if(!stricmp(word[2], "custom")) asar_throw_error(0, error_type_block, error_id_custom_spcblock_missing_macro);
+			else asar_throw_error(0, error_type_block, error_id_unknown_spcblock_type);
+		}
+		else if(numwords == 4)
+		{
+			if(!stricmp(word[2], "custom")) spcblock.type = spcblock_custom;
+			else asar_throw_error(0, error_type_block, error_id_extra_spcblock_arg_for_type);
+
+			if(macros.exists(word[3]))
+			{
+				macrodata *macro = macros.find(word[3]);
+				if(!macro->variadic) asar_throw_error(0, error_type_block, error_id_spcblock_macro_must_be_varadic);
+				if(macro->numargs != 3) asar_throw_error(0, error_type_block, error_id_spcblock_macro_invalid_static_args);
+				spcblock.macro_name = word[3];
+			}
+			else asar_throw_error(0, error_type_block, error_id_spcblock_macro_doesnt_exist);
+		}
+
+		switch(spcblock.type)
+		{
+			case spcblock_nspc:
+				spcblock.size_address=realsnespos;
+				write2(0x0000);
+				write2(spcblock.destination);
+				snespos=(int)spcblock.destination;
+				startpos=(int)spcblock.destination;
+				spcblock.execute_address = -1u;
+			break;
+			case spcblock_custom:
+				//this is a todo that probably won't be ready for 1.9
+				//mostly so we can leverage some cleanups we make in 2.0 for practicality
+				asar_throw_error(0, error_type_block, error_id_spcblock_custom_types_incomplete);
+				push_pc();
+				spcblock.old_mapper = mapper;
+				mapper = norom;
+			break;
+			default:
+				asar_throw_error(0, error_type_fatal, error_id_internal_error, "invalid spcblock type");
+		}
+
+		ns_backup = ns;
+		ns = STR":SPCBLOCK:_" + ns_backup;
+		in_spcblock = true;
+	}
+	else if(is0("endspcblock"))
+	{
+		if(!in_spcblock) asar_throw_error(0, error_type_block, error_id_endspcblock_without_spcblock);
+
+		switch(spcblock.type)
+		{
+			case spcblock_nspc:
+				if (pass==2)
+				{
+					int pcpos=snestopc(spcblock.size_address&0xFFFFFF);
+					if (pcpos<0) asar_throw_error(2, error_type_block, error_id_snes_address_doesnt_map_to_rom, hex6((unsigned int)realsnespos).data());
+					int num=snespos-startpos;
+					writeromdata_byte(pcpos, (unsigned char)num);
+					writeromdata_byte(pcpos+1, (unsigned char)(num >> 8));
+				}
+				if(spcblock.execute_address != -1u)
+				{
+					write2(0x0000);
+					write2((unsigned int)spcblock.execute_address);
+				}
+			break;
+			case spcblock_custom:
+				mapper = spcblock.old_mapper;
+				pop_pc();
+			break;
+			default:
+				asar_throw_error(0, error_type_fatal, error_id_internal_error, "invalid spcblock type");
+		}
+		ns = ns_backup;
+		in_spcblock = false;
+	}
+	else if (is1("startpos"))
+	{
+		if(!in_spcblock) asar_throw_error(0, error_type_block, error_id_startpos_without_spcblock);
+		spcblock.execute_address=getnum64(par);
+	}
 	else if (is1("base"))
 	{
 		if (!stricmp(par, "off"))
@@ -1494,54 +1738,54 @@ void assembleblock(const char * block, bool isspecialline)
 		startpos=(int)num;
 		optimizeforbank=-1;
 	}
-	else if (is1("dpbase"))		
-	{		
-		unsigned int num=(int)getnum(par);		
-		if (forwardlabel) asar_throw_error(0, error_type_block, error_id_base_label_invalid);		
-		if (num&~0xFF00) asar_throw_error(1, error_type_block, error_id_bad_dp_base, hex6((unsigned int)num).data());		
-		dp_base = (int)num;		
-	}		
-	else if (is2("optimize"))		
-	{		
-		if (!stricmp(par, "dp"))		
-		{		
-			if (!stricmp(word[2], "none"))		
-			{		
-				optimize_dp = optimize_dp_flag::NONE;		
-				return;		
-			}		
-			if (!stricmp(word[2], "ram"))		
-			{		
-				optimize_dp = optimize_dp_flag::RAM;		
-				return;		
-			}		
-			if (!stricmp(word[2], "always"))		
-			{		
-				optimize_dp = optimize_dp_flag::ALWAYS;		
-				return;		
-			}		
-			asar_throw_error(1, error_type_block, error_id_bad_dp_optimize, word[2]);		
-		}		
-		if (!stricmp(par, "address"))		
-		{		
-			if (!stricmp(word[2], "default"))		
-			{		
-				optimize_address = optimize_address_flag::DEFAULT;		
-				return;		
-			}		
-			if (!stricmp(word[2], "ram"))		
-			{		
-				optimize_address = optimize_address_flag::RAM;		
-				return;		
-			}		
-			if (!stricmp(word[2], "mirrors"))		
-			{		
-				optimize_address = optimize_address_flag::MIRRORS;		
-				return;		
-			}		
-			asar_throw_error(1, error_type_block, error_id_bad_address_optimize, word[2]);		
-		}		
-		asar_throw_error(1, error_type_block, error_id_bad_optimize, par);		
+	else if (is1("dpbase"))
+	{
+		unsigned int num=(int)getnum(par);
+		if (forwardlabel) asar_throw_error(0, error_type_block, error_id_base_label_invalid);
+		if (num&~0xFF00) asar_throw_error(1, error_type_block, error_id_bad_dp_base, hex6((unsigned int)num).data());
+		dp_base = (int)num;
+	}
+	else if (is2("optimize"))
+	{
+		if (!stricmp(par, "dp"))
+		{
+			if (!stricmp(word[2], "none"))
+			{
+				optimize_dp = optimize_dp_flag::NONE;
+				return;
+			}
+			if (!stricmp(word[2], "ram"))
+			{
+				optimize_dp = optimize_dp_flag::RAM;
+				return;
+			}
+			if (!stricmp(word[2], "always"))
+			{
+				optimize_dp = optimize_dp_flag::ALWAYS;
+				return;
+			}
+			asar_throw_error(1, error_type_block, error_id_bad_dp_optimize, word[2]);
+		}
+		if (!stricmp(par, "address"))
+		{
+			if (!stricmp(word[2], "default"))
+			{
+				optimize_address = optimize_address_flag::DEFAULT;
+				return;
+			}
+			if (!stricmp(word[2], "ram"))
+			{
+				optimize_address = optimize_address_flag::RAM;
+				return;
+			}
+			if (!stricmp(word[2], "mirrors"))
+			{
+				optimize_address = optimize_address_flag::MIRRORS;
+				return;
+			}
+			asar_throw_error(1, error_type_block, error_id_bad_address_optimize, word[2]);
+		}
+		asar_throw_error(1, error_type_block, error_id_bad_optimize, par);
 	}
 	else if (is1("bank"))
 	{
@@ -1563,6 +1807,7 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is("freespace") || is("freecode") || is("freedata"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		if (emulatexkas) asar_throw_warning(0, warning_id_convert_to_asar);
 		string parstr;
 		if (numwords==1) parstr="\n";//crappy hack: impossible character to cut out extra commas
@@ -1650,6 +1895,7 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is1("prot"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		if (!confirmqpar(par)) asar_throw_error(0, error_type_block, error_id_mismatched_parentheses);
 		if (!ratsmetastate) asar_throw_error(2, error_type_block, error_id_prot_not_at_freespace_start);
 		if (ratsmetastate==ratsmeta_used) step(-5);
@@ -1666,7 +1912,7 @@ void assembleblock(const char * block, bool isspecialline)
 			//int num=getnum(pars[i]);
 			const char * labeltest=pars[i];
 			string testlabel = labeltest;
-			int labelnum=(int)labelval(&labeltest);
+			int labelnum=(int)labelval(&labeltest).pos;
 			if (*labeltest) asar_throw_error(0, error_type_block, error_id_label_not_found, testlabel.data());
 			write3((unsigned int)labelnum);
 			if (pass==1) freespaceleak[labelnum >>24]=false;
@@ -1680,13 +1926,14 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is1("autoclean") || is2("autoclean") || is1("autoclear") || is2("autoclear"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		if (is1("autoclear") || is2("autoclear")) asar_throw_warning(0, warning_id_autoclear_deprecated);
 		if (numwords==3)
 		{
 			if ((unsigned int)snespos & 0xFF000000) asar_throw_error(0, error_type_block, error_id_autoclean_in_freespace);
 			const char * labeltest = word[2];
 			string testlabel = labeltest;
-			int num=(int)labelval(&labeltest);
+			int num=(int)labelval(&labeltest).pos;
 			if (*labeltest) asar_throw_error(0, error_type_block, error_id_label_not_found, testlabel.data());
 			unsigned char targetid=(unsigned char)(num>>24);
 			if (pass==1) freespaceleak[targetid]=false;
@@ -1788,8 +2035,37 @@ void assembleblock(const char * block, bool isspecialline)
 			optimizeforbank = -1;
 		}
 	}
+	else if (is0("pushns"))
+	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
+		pushns[pushnsnum].ns = ns;
+		for(int i = 0; i < namespace_list.count; i++)
+		{
+			pushns[pushnsnum].namespace_list.append(namespace_list[i]);
+		}
+		pushns[pushnsnum].nested_namespaces = nested_namespaces;
+		pushnsnum++;
+
+		namespace_list.reset();
+		ns = "";
+		nested_namespaces = false;
+	}
+	else if (is0("pullns"))
+	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
+		if (!pushnsnum) asar_throw_error(0, error_type_block, error_id_pullns_without_pushns);
+		pushnsnum--;
+		ns = pushns[pushnsnum].ns;
+		nested_namespaces = pushns[pushnsnum].nested_namespaces;
+		namespace_list.reset();
+		for(int i = 0; i < pushns[pushnsnum].namespace_list.count; i++)
+		{
+			namespace_list.append(pushns[pushnsnum].namespace_list[i]);
+		}
+	}
 	else if (is1("namespace") || is2("namespace"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		bool leave = false;
 		if (par)
 		{
@@ -1915,7 +2191,7 @@ void assembleblock(const char * block, bool isspecialline)
 				char* tmp = strqpchr(lengths, '-');
 				if(!tmp || (*(tmp-1)!=')')) asar_throw_error(0, error_type_block, error_id_broken_incbin);
 				start = (int)getnum64(string(lengths+1, tmp-1-lengths-1));
-				if (foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+				if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 				lengths = tmp;
 			} else {
 				start=(int)strtoul(lengths, &lengths, 16);
@@ -1926,7 +2202,7 @@ void assembleblock(const char * block, bool isspecialline)
 				char* tmp = strchr(lengths, '\0');
 				if(*(tmp-1)!=')') asar_throw_error(0, error_type_block, error_id_broken_incbin);
 				end = (int)getnum64(string(lengths+1, tmp-1-lengths-1));
-				if (foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+				if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 				// no need to check end-of-string here
 			} else {
 				end=(int)strtoul(lengths, &lengths, 16);
@@ -1963,7 +2239,7 @@ void assembleblock(const char * block, bool isspecialline)
 			if (!confirmname(word[3]))
 			{
 				int pos=(int)getnum(word[3]);
-				if (foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+				if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 				int offset=snestopc(pos);
 				if (offset + end - start > 0xFFFFFF) asar_throw_error(0, error_type_block, error_id_16mb_rom_limit);
 				if (offset+end-start>romlen) romlen=offset+end-start;
@@ -2009,12 +2285,12 @@ void assembleblock(const char * block, bool isspecialline)
 		if(numwords > 2)
 		{
 			int alignment = getnum64(word[2]);
-			if(foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+			if(foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 			int offset = 0;
 			if(numwords==5)
 			{
 				offset = getnum64(word[4]);
-				if(foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+				if(foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 			}
 			if(alignment > 0x800000) asar_throw_error(0, error_type_block, error_id_alignment_too_big);
 			if(alignment < 1) asar_throw_error(0, error_type_block, error_id_alignment_too_small);
@@ -2025,7 +2301,7 @@ void assembleblock(const char * block, bool isspecialline)
 		else
 		{
 			amount = (int)getnum64(par);
-			if (foundlabel) asar_throw_error(0, error_type_block, error_id_no_labels_here);
+			if (foundlabel && !foundlabel_static) asar_throw_error(0, error_type_block, error_id_no_labels_here);
 		}
 		if(is("skip")) step(amount);
 		else for(int i=0; i < amount; i++) write1(fillbyte[i%12]);
@@ -2061,20 +2337,20 @@ void assembleblock(const char * block, bool isspecialline)
 		{
 			string tableline=tablelines[i];
 			if (!*tableline) continue;
-			if (strlen(tableline) < 4 || strlen(tableline) & 1 || strlen(tableline) > 10) asar_throw_error(0, error_type_block, error_id_invalid_table_file);
+			if (strlen(tableline) < 4 || strlen(tableline) & 1 || strlen(tableline) > 10) asar_throw_error(0, error_type_block, error_id_invalid_table_file, i+1);
 			if (!fliporder)
 			{
-				if (tableline[3]=='x' || tableline[3]=='X') asar_throw_error(0, error_type_block, error_id_invalid_table_file);
+				if (tableline[3]=='x' || tableline[3]=='X') asar_throw_error(0, error_type_block, error_id_invalid_table_file, i+1);
 				char * end;
 				table.table[(unsigned char)tableline[0]]=(unsigned int)strtol(tableline.data()+2, &end, 16);
-				if (*end) asar_throw_error(0, error_type_block, error_id_invalid_table_file);
+				if (*end) asar_throw_error(0, error_type_block, error_id_invalid_table_file, i+1);
 			}
 			else
 			{
-				if (tableline[1]=='x' || tableline[1]=='X') asar_throw_error(0, error_type_block, error_id_invalid_table_file);
+				if (tableline[1]=='x' || tableline[1]=='X') asar_throw_error(0, error_type_block, error_id_invalid_table_file, i+1);
 				char * eq;
 				unsigned int val=(unsigned int)strtol(tableline, &eq, 16);
-				if (eq[0]!='=' || eq[2]) asar_throw_error(0, error_type_block, error_id_invalid_table_file);
+				if (eq[0]!='=' || eq[2]) asar_throw_error(0, error_type_block, error_id_invalid_table_file, i+1);
 				table.table[(unsigned char)eq[1]]=val;
 			}
 		}
@@ -2101,82 +2377,7 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is1("print"))
 	{
-		if (!confirmqpar(par)) asar_throw_error(0, error_type_block, error_id_mismatched_parentheses);
-		string out;
-		autoptr<char**> pars=qpsplit(par, ",");
-		for (int i=0;pars[i];i++)
-		{
-			if(0);
-			else if (pars[i][0]=='"') out+= safedequote(pars[i]);
-			else if (!stricmp(pars[i], "bytes")) out+=dec(bytes);
-			else if (!stricmp(pars[i], "freespaceuse")) out+=dec(freespaceuse);
-			else if (!stricmp(pars[i], "pc")) out+=hex6((unsigned int)(snespos&0xFFFFFF));
-			else if (!strncasecmp(pars[i], "bin(", strlen("bin(")) ||
-			         !strncasecmp(pars[i], "dec(", strlen("dec(")) ||
-			         !strncasecmp(pars[i], "hex(", strlen("hex(")) ||
-			         !strncasecmp(pars[i], "double(", strlen("double(")))
-			{
-				char * arg1pos = strchr(pars[i], '(')+1;
-				char * endpos = strchr(arg1pos, '\0');
-				while (*endpos==' ' || *endpos=='\0') endpos--;
-				if (*endpos != ')') asar_throw_error(0, error_type_block, error_id_invalid_print_function_syntax);
-				string paramstr = string(arg1pos, (int)(endpos-arg1pos));
-
-				int numargs;
-				autoptr<char**> params = qpsplit(paramstr.temp_raw(), ",", &numargs);
-				if (numargs > 2) asar_throw_error(0, error_type_block, error_id_wrong_num_parameters);
-				int precision = 0;
-				bool hasprec = numargs == 2;
-				if (hasprec)
-				{
-					precision = getnum64(params[1]);
-					if(precision < 0) precision = 0;
-					if(precision > 64) precision = 64;
-				}
-				*(arg1pos-1) = '\0'; // allows more convenient comparsion functions
-				if(!stricmp(pars[i], "bin"))
-				{
-					// sadly printf doesn't have binary, so let's roll our own
-					int64_t value = getnum64(params[0]);
-					char buffer[65];
-					if(value < 0) {
-						out += '-';
-						value = -value;
-						// decrement precision because we've output one char already
-						precision -= 1;
-						if(precision<0) precision=0;
-					}
-					for(int j = 0; j < 64; j++) {
-						buffer[63-j] = '0' + ((value & (1ull<<j)) >> j);
-					}
-					buffer[64] = 0;
-					int startidx = 0;
-					while(startidx < 64-precision && buffer[startidx] == '0') startidx++;
-					if(startidx == 64) startidx--; // always want to print at least one digit
-					out += buffer+startidx;
-				}
-				else if(!stricmp(pars[i], "dec"))
-				{
-					int64_t value = getnum64(params[0]);
-					char buffer[65];
-					snprintf(buffer, 65, "%0*" PRId64, precision, value);
-					out += buffer;
-				}
-				else if(!stricmp(pars[i], "hex"))
-				{
-					int64_t value = getnum64(params[0]);
-					char buffer[65];
-					snprintf(buffer, 65, "%0*" PRIX64, precision, value);
-					out += buffer;
-				}
-				else if(!stricmp(pars[i], "double"))
-				{
-					if(!hasprec) precision=5;
-					out += ftostrvar(getnumdouble(params[0]), precision);
-				}
-			}
-			else asar_throw_error(2, error_type_block, error_id_unknown_variable);
-		}
+		string out = handle_print(par);
 		if (pass!=2) return;
 		print(out);
 	}
@@ -2195,6 +2396,7 @@ void assembleblock(const char * block, bool isspecialline)
 		if (is("padlong")) len=3;
 		if (is("paddword")) len=4;
 		unsigned int val=getnum(par);
+		if(foundlabel) asar_throw_warning(1, warning_id_feature_deprecated, "labels in padbyte", "just... don't.");
 		for (int i=0;i<12;i+=len)
 		{
 			unsigned int tmpval=val;
@@ -2226,6 +2428,7 @@ void assembleblock(const char * block, bool isspecialline)
 		if (is("filllong")) len=3;
 		if (is("filldword")) len=4;
 		unsigned int val= getnum(par);
+		if(foundlabel) asar_throw_warning(1, warning_id_feature_deprecated, "labels in fillbyte", "just... don't");
 		for (int i=0;i<12;i+=len)
 		{
 			unsigned int tmpval=val;
@@ -2238,11 +2441,13 @@ void assembleblock(const char * block, bool isspecialline)
 	}
 	else if (is1("arch"))
 	{
+		if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 		if (emulatexkas) asar_throw_warning(0, warning_id_convert_to_asar);
 		if (!stricmp(par, "65816")) { arch=arch_65816; return; }
 		if (!stricmp(par, "spc700")) { arch=arch_spc700; return; }
-		if (!stricmp(par, "spc700-inline")) { arch=arch_spc700_inline; return; }
+		if (!stricmp(par, "spc700-inline")) { asar_throw_warning(1, warning_id_feature_deprecated, "spc700-inline", " Use spcblock and spcblockend"); arch=arch_spc700_inline; return; }
 		if (!stricmp(par, "spc700-raw")) {
+			asar_throw_warning(1, warning_id_feature_deprecated, "spc700-raw", " Use arch spc700 with norom");
 			arch=arch_spc700;
 			mapper=norom;
 			mapper_set = false;
@@ -2298,7 +2503,7 @@ void assembleblock(const char * block, bool isspecialline)
 			asar_throw_error(1, error_type_block, error_id_unknown_command);
 		}
 	}
-	
+
 }
 
 bool assemblemapper(char** word, int numwords)
@@ -2374,7 +2579,8 @@ bool assemblemapper(char** word, int numwords)
 		asar_throw_warning(0, warning_id_feature_deprecated, "header", "Remove command, unnecessary.");
 	}
 	else return false;
-	
+
+	if(in_spcblock) asar_throw_error(0, error_type_block, error_id_feature_unavaliable_in_spcblock);
 	if(!mapper_set){
 		mapper_set = true;
 	}else if(previous_mapper != mapper){

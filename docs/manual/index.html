@@ -36,7 +36,7 @@
 		
 		<h1>Asar</h1>
 		
-		<p>A multi-architecture SNES assembler by <i>Alcaro</i>, based on <b>xkas v0.06</b> by <i>byuu</i>.<br />
+		<p>A multi-architecture SNES assembler by <i>Alcaro</i>, modelled after <b>xkas v0.06</b> by <i>byuu</i>.<br />
 		This manual was written by <i>RPG Hacker</i>, so if you find something that is wrong or weird, make sure to blame me instead of Alcaro.</p>
 		<p>As a general rule, the manual uses <code>{}</code> to denote required parameters and <code>[]</code> to denote optional parameters (where optional parameters ending in <code>...</code> mean &quot;zero or more&quot; of that parameter). Everything else refers to keywords/names.</p>
 		<hr />
@@ -1653,7 +1653,7 @@ endif</code></pre>
 		The <code class="65c816_asar">warn xkas</code> command determines whether Asar should throw warnings on behavior that is known to be different between xkas and Asar. Use <code>warn xkas on</code> to enable these warnings and <code>warn xkas off</code> to disable them. It's recommended to only enable them when not using <a href="#xkas">xkas compatibility mode</a>. Note that some behavioral changes throw warnings or errors regardless of this setting.
 		<h4 id="math-pri">math pri</h4>
 		<pre><code class="65c816_asar">math pri {on/off}</code></pre>
-		The <code class="65c816_asar">math pri</code> command tells Asar which order of operations to use in math experssions. When set to off (default), Asar uses left-to-right math, just like xkas v0.06. When set to on, Asar follows the conventional oder of operations (exponentiation before multiplication & division, multiplication & division before addition & subtraction etc.). Parentheses can be used in either mode and tell Asar to calculate the expression inside first. For most intents and purposes, working with this flag enabled is more practical and predictable. It is disabled by default solely for the purpose of xkas backwards compatibility. When writing patches specifially for Asar, it is recommended to always enable this flag.
+		The <code class="65c816_asar">math pri</code> command tells Asar which order of operations to use in math experssions. When set to off (default), Asar uses left-to-right math, just like xkas v0.06. When set to on, Asar follows the conventional oder of operations (exponentiation before multiplication & division, multiplication & division before addition & subtraction etc.). Parentheses can be used in either mode and tell Asar to calculate the expression inside first. For most intents and purposes, working with this flag enabled is more practical and predictable. It is disabled by default solely for the purpose of xkas backwards compatibility, unless <code class="65c816_asar">@asar 1.9</code> or a higher version is specified at the start of the file, which will change the default to <code class="65c816_asar">math pri on</code>. When writing patches specifially for Asar, it is recommended to always enable this flag.
 		<pre><code class="65c816_asar">math pri off
 db 1+(6/3)*5	; db 15
 
@@ -2174,7 +2174,7 @@ endstruct</code></pre>
 		<h4 id="namespaces">Namespaces</h4>
 		Namespaces are a feature which makes it easier to avoid name conflicts between different labels without having to give them long or cryptic names. They work similarly to C++ namespaces and accomplish this by automatically adding a prefix to all labels declared or accessed within them. This prefix consists of an identifier, followed by an underscore <code>_</code> . Namespaces can be stacked if desired by enabling the <a href="#namespace-nested">namespace nested</a> setting. When you try to access a label from within a namespace and Asar doesn't find it in there, it automatically looks in the upper namespaces (up to the global namespace). Use<br/>
 		<pre><code class="65c816_asar">namespace {identifier}</code></pre>
-		to enter a namspace, where <code>identifier</code> can contain any of the following characters:<br/>		
+		to enter a namespace, where <code>identifier</code> can contain any of the following characters:<br/>		
 		<code class="65c816_asar">a-z A-Z 0-9 _</code><br />
 		Use
 		<pre><code class="65c816_asar">namespace off</code></pre>
@@ -2431,7 +2431,7 @@ endmacro
 </code></pre>
 
 In addition to named substitutions if the variadic token <code class="65c816_asar">...</code> is specified as the last parameter asar will allow an arbitrary number of parameters after all prior parameters have been satisfied.
-To access unnamed arguments of a variadic function they are declared numerically starting from 0 up to the number of provided parameters.  To access the number of provided variadic arguments one may use <code class="65c816_asar">sizeof(...)</code>.
+To access unnamed arguments of a variadic function they are declared numerically starting from 0 up to the number of provided parameters. To access the number of provided variadic arguments one may use <code class="65c816_asar">sizeof(...)</code>.
 Lastly, it is important to note that while traditionally macros do not parse defines at their creation variadic macros will.  This is to allow iteration of arguments by using defines.
 
 <pre><code class="65c816_asar">
@@ -2455,9 +2455,19 @@ macro example2(named_parameter, ...)
 	endif
 	db &lt;named_parameter&gt;	;01
 endmacro
+
+macro macro_with_optional_arguments(required, ...)
+	db &lt;required&gt;
+	if sizeof(...) &gt; 0
+		db &lt;0&gt;
+	end
+end
+
 %example0(1,2,3,4)
 %example1(1,2,3)
 %example2(1,2,3,4,5,6,7)
+%macro_with_optional_arguments(1)
+%macro_with_optional_arguments(2, 3)
 </code></pre>
 		<a href="#contents">Return to top</a></div>
 		<hr />
@@ -2814,6 +2824,22 @@ endif</code></pre>
 	if !fireballs_enabled : %PlaySoundEffect(!fireball_sfx) : jsr ShootFireball
 	rtl
 		</code></pre>
+		If you plan to use labels in if commands, note that there's certain restrictions that apply. More specifically, only static labels can be used. That is, only labels whose address can't change between Asar's passes, as demonstrated by the following example:
+		<pre><code class="65c816_asar">FirstLabel = $018000
+		
+freecode
+	lda SecondLabel,x
+	
+SecondLabel:
+	db $00,$01,$02,$03
+	
+; All good. FirstLabel was statically defined.
+if FirstLabel == 0
+endif
+
+; Error E5107. The label could move between passes.
+if SecondLabel == 0
+endif</code></pre>
 		<h4 id="while">while</h4>
 		A special variation of if conditionals are while loops. Instead of compiling their enclosed code only once, they compile it repeatedly until their condition evaluates to <code>&lt;= 0</code>. Typically, this would be used with a define that is modified inside the loop. This can be useful for generating data tables.
 		<pre><code class="65c816_asar">!counter = 0
@@ -3223,15 +3249,15 @@ SomeLargeData:
 		</table><br/>
 		<h4 id="warn">warn</h4>
 		The warn command lets you output a warning message to the user. Usage:
-		<pre><code class="65c816_asar">warn [custom_warning_text]</code></pre>
-		where <code>custom_warning_text</code> can be a custom warning text delimited by double quotes. A warning does not cause compilation to fail, so it can be used to inform the user about potential dangers. Warning messages are printed to stderr by default, but are printed to stdout if the Asar executable is renamed to xkas.exe. This is intended for compatibility purposes.
+		<pre><code class="65c816_asar">warn [text_or_function...]</code></pre>
+		where <code>custom_warning_text</code> can be a custom warning text and uses the same format as the <code>print</code> command. A warning does not cause compilation to fail, so it can be used to inform the user about potential dangers. Warning messages are printed to stderr by default, but are printed to stdout if the Asar executable is renamed to xkas.exe. This is intended for compatibility purposes.
 		<pre><code class="65c816_asar">if read1($00FFD5) == $23
 	warn "SA-1 compatibility of this patch is untested, use with caution!"
 endif</code></pre>
 		<h4 id="error">error</h4>
 		The error command lets you output an error message to the user. Usage:
-		<pre><code class="65c816_asar">error [custom_error_text]</code></pre>
-		where <code>custom_error_text</code> can be a custom error text delimited by double quotes. An error causes compilation to fail, so it should be used to inform the user about irrecoverable error states. Error messages are printed to stderr by default, but are printed to stdout if the Asar executable is renamed to xkas.exe. This is intended for compatibility purposes.
+		<pre><code class="65c816_asar">error [text_or_function...]</code></pre>
+		where <code>custom_error_text</code> can be a custom error text and uses the same format as the <code>print</code> command. An error causes compilation to fail, so it should be used to inform the user about irrecoverable error states. Error messages are printed to stderr by default, but are printed to stdout if the Asar executable is renamed to xkas.exe. This is intended for compatibility purposes.
 		<pre><code class="65c816_asar">if read1($00FFD5) == $23
 	error "This patch is not SA-1 compatible!"
 endif</code></pre>
@@ -3239,11 +3265,11 @@ endif</code></pre>
 		An assert can be considered a short version of the code
 		<pre><code class="65c816_asar">if {condition}
 else
-	error [custom_error_text]
+	error [text_or_function...]
 endif</code></pre>
 		and is used via the syntax
-		<pre><code class="65c816_asar">assert {condition}[,custom_error_text]</code></pre>
-		where <code>custom_error_text</code> can be a custom error text delimited by double quotes. If <code>condition</code> evaluates to <code>&lt;= 0</code>, an error is thrown, otherwise nothing happens.
+		<pre><code class="65c816_asar">assert {condition}[,text_or_function...]</code></pre>
+		where <code>custom_error_text</code> can be a custom error text and uses the same format as the <code>print</code> command. If <code>condition</code> evaluates to <code>&lt;= 0</code>, an error is thrown, otherwise nothing happens.
 		<pre><code class="65c816_asar">assert read1($00FFD5) != $23,"This patch is not SA-1 compatible!"</code></pre>
 		<a href="#contents">Return to top</a></div>
 		<hr />
