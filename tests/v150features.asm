@@ -13,7 +13,7 @@
 ;`warnW1029
 ;`warnW1029
 ;`warnW1029
-@asar 1.50
+asar 1.50
 
 lorom
 	org $008000
@@ -91,12 +91,12 @@ lorom
 	
 	dl $FFFFFF
 	
-	table "data/pushtable1.tbl"
+	incsrc "data/pushtable1.asm"
 	db "ABCD"
 	
 	pushtable
 	
-	table "data/pushtable2.tbl"
+	incsrc "data/pushtable2.asm"
 	db "ABCD"
 	
 	pulltable

@@ -17,11 +17,13 @@
 
 // randomdude999: remember to also update the .rc files (in res/windows/) when changing this.
 // Couldn't find a way to automate this without shoving the version somewhere in the CMake files
-extern const int asarver_maj=1;
-extern const int asarver_min=9;
-extern const int asarver_bug=0;
-extern const bool asarver_beta=true;
+const int asarver_maj=1;
+const int asarver_min=9;
+const int asarver_bug=0;
+const bool asarver_beta=true;
 bool default_math_pri=false;
+bool default_math_round_off=false;
+extern bool suppress_all_warnings;
 
 #ifdef _I_RELEASE
 extern char blockbetareleases[(!asarver_beta)?1:-1];
@@ -530,6 +532,8 @@ void assembleline(const char * fname, int linenum, const char * line)
 					bool isspecialline = false;
 					if (thisblock[0] == '@')
 					{
+						asar_throw_warning(0, warning_id_feature_deprecated, "prefixing Asar commands with @ or ;@", "remove the @ or ;@ prefix");
+
 						isspecialline = true;
 						thisblock++;
 						while (is_space(*thisblock))
@@ -546,6 +550,9 @@ void assembleline(const char * fname, int linenum, const char * line)
 		}
 		if(fakeendif)
 		{
+			thisline = linenum;
+			thisblock = blocks[0];
+			asar_throw_warning(0, warning_id_feature_deprecated, "inline if statements", "Add an \" : endif\" at the end of the line");
 			if (numif==numtrue) numtrue--;
 			numif--;
 		}
@@ -966,6 +973,10 @@ void reseteverything()
 	errored = false;
 	checksum_fix_enabled = true;
 	force_checksum_fix = false;
+
+	default_math_pri = false;
+	default_math_round_off = false;
+	suppress_all_warnings = false;
 	
 	#ifndef ASAR_SHARED
 		free(const_cast<unsigned char*>(romdata_r));

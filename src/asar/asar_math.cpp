@@ -17,6 +17,7 @@
 
 bool math_pri=true;
 bool math_round=false;
+extern bool suppress_all_warnings;
 
 static const char * str;
 //save before calling eval if needed after
@@ -856,7 +857,7 @@ static double getnumcore()
 static double sanitize(double val)
 {
 	if (val != val) asar_throw_error(1, error_type_block, error_id_nan);
-	if (math_round) return trunc(val); // originally used int cast, but that broke numbers > $8000_0000
+	if (math_round && !default_math_round_off) return trunc(val); // originally used int cast, but that broke numbers > $8000_0000
 	return val;
 }
 
@@ -951,7 +952,7 @@ notposneglabel:
 	{
 		while (*str==' ') str++;
 		// why was this an int cast
-		if (math_round) left=trunc(left);
+		if (math_round && !default_math_round_off) left=trunc(left);
 #define oper(name, thisdepth, contents)      \
 			if (!strncmp(str, name, strlen(name))) \
 			{                                      \
@@ -1007,16 +1008,24 @@ double math(const char * s)
 	else
 	{
 		str = s;
-		double no_pri_rval = eval(0);
-		
+		rval = eval(0);
+
+		double pri_rval = NAN;
+
+		suppress_all_warnings = true;
 		math_pri = true;
-		str = s;
-		rval = eval(0);	
+		try
+		{
+			str = s;
+			pri_rval = eval(0);
+		}
+		catch (errfatal&) {}
+		suppress_all_warnings = false;
 		math_pri = false;
-		if(no_pri_rval != rval)
+
+		if (pri_rval != rval)
 		{
 			asar_throw_warning(2, warning_id_feature_deprecated, "xkas style left to right math ", "apply order of operations");
-			rval = no_pri_rval;
 		}
 	}
 	if (*str)
