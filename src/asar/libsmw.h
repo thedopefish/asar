@@ -3,11 +3,12 @@
 #include "errors.h"
 #include "autoarray.h"
 #include <cstdint>
+#include <string>
 
 extern const unsigned char * romdata;
 extern int romlen;
 extern asar_error_id openromerror;
-bool openrom(const char * filename, bool confirm=true, bool header=false);
+bool openrom(const char * filename, bool confirm, bool header, std::string ips_filepath);
 uint32_t closerom(bool save = true);
 
 enum mapper_t {
