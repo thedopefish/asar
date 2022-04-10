@@ -4,7 +4,12 @@
 #include "errors.h"
 #include "asar.h"
 #include "crc32.h"
+
+#include <algorithm>
 #include <cstdint>
+#include <fstream>
+#include <string>
+#include <vector>
 
 mapper_t mapper=lorom;
 int sa1banks[8]={0<<20, 1<<20, -1, -1, 2<<20, 3<<20, -1, -1};
@@ -106,9 +111,74 @@ static void addromwrite(int pcoffset, int numbytes)
 }
 #endif
 
+namespace
+{
+	class Ips
+	{
+		struct Interval
+		{
+			size_t i_begin, i_end;
+		};
+
+		std::vector<Interval> intervals;
+
+	public:
+		std::string filepath;
+
+		void queue_for_ips(size_t i_begin, size_t i_end)
+		{
+			for (Interval& interval : intervals)
+				if (interval.i_begin <= i_begin && i_begin < interval.i_end)
+				{
+					interval.i_end = std::max(interval.i_end, i_end);
+					return;
+				}
+				else if (interval.i_begin <= i_end && i_end < interval.i_end)
+				{
+					interval.i_begin = std::min(interval.i_begin, i_begin);
+					return;
+				}
+
+			intervals.push_back({i_begin, i_end});
+		}
+
+		void save_to_file() const
+		{
+			std::ofstream out(filepath, std::ios::binary);
+			out.write("PATCH", 5);
+			for (Interval interval : intervals)
+			{
+				size_t n = interval.i_end - interval.i_begin;
+				while (n)
+				{
+					// Can't write "EOF"
+					if (interval.i_begin == 0x454F46)
+						throw std::runtime_error("Cannot write address $454F46 in IPS patch");
+
+					const size_t n_block = std::min(size_t(0xFFFF), n);
+					out.put(interval.i_begin >> 0x10);
+					out.put(interval.i_begin >> 8 & 0xFF);
+					out.put(interval.i_begin & 0xFF);
+					out.put(n_block >> 8);
+					out.put(n_block & 0xFF);
+					out.write(reinterpret_cast<const char*>(romdata) + interval.i_begin, n_block);
+
+					interval.i_begin += n_block;
+					n -= n_block;
+				}
+			}
+
+			out.write("EOF", 3);
+		}
+	};
+
+	Ips ips;
+}
+
 void writeromdata(int pcoffset, const void * indata, int numbytes)
 {
 	memcpy(const_cast<unsigned char*>(romdata) + pcoffset, indata, (size_t)numbytes);
+	ips.queue_for_ips(size_t(pcoffset), size_t(pcoffset + numbytes));
 	#ifdef ASAR_SHARED
 		addromwrite(pcoffset, numbytes);
 	#endif
@@ -117,6 +187,7 @@ void writeromdata(int pcoffset, const void * indata, int numbytes)
 void writeromdata_byte(int pcoffset, unsigned char indata)
 {
 	memcpy(const_cast<unsigned char*>(romdata) + pcoffset, &indata, 1);
+	ips.queue_for_ips(size_t(pcoffset), size_t(pcoffset + 1));
 	#ifdef ASAR_SHARED
 		addromwrite(pcoffset, 1);
 	#endif
@@ -125,6 +196,7 @@ void writeromdata_byte(int pcoffset, unsigned char indata)
 void writeromdata_bytes(int pcoffset, unsigned char indata, int numbytes)
 {
 	memset(const_cast<unsigned char*>(romdata) + pcoffset, indata, (size_t)numbytes);
+	ips.queue_for_ips(size_t(pcoffset), size_t(pcoffset + numbytes));
 	#ifdef ASAR_SHARED
 		addromwrite(pcoffset, numbytes);
 	#endif
@@ -404,7 +476,7 @@ int getsnesfreespace(int size, bool isforcode, bool autoexpand, bool respectbank
 	return pctosnes(getpcfreespace(size, isforcode, autoexpand, respectbankborders, align, freespacebyte));
 }
 
-bool openrom(const char * filename, bool confirm, bool header)
+bool openrom(const char * filename, bool confirm, bool header, std::string ips_filepath)
 {
 	closerom();
 	thisfile=fopen(filename, "r+b");
@@ -437,6 +509,8 @@ bool openrom(const char * filename, bool confirm, bool header)
 	romlen_r=romlen;
 	memcpy((void*)romdata_r, romdata, (size_t)romlen);//recently allocated, dead
 
+	ips.filepath = ips_filepath;
+
 	return true;
 }
 
@@ -447,6 +521,8 @@ uint32_t closerom(bool save)
 	{
 		fseek(thisfile, header*512, SEEK_SET);
 		fwrite(const_cast<unsigned char*>(romdata), 1, (size_t)romlen, thisfile);
+
+		ips.save_to_file();
 
 		// do a quick re-read of the header, and include that in the crc32 calculation if necessary
 		{
@@ -468,6 +544,7 @@ uint32_t closerom(bool save)
 	romdata= nullptr;
 	romdata_r = nullptr;
 	romlen=0;
+	ips = {};
 	return romCrc;
 }
 
