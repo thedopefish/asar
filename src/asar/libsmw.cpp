@@ -15,7 +15,7 @@ mapper_t mapper=lorom;
 int sa1banks[8]={0<<20, 1<<20, -1, -1, 2<<20, 3<<20, -1, -1};
 const unsigned char * romdata= nullptr; // NOTE: Changed into const to prevent direct write access - use writeromdata() functions below
 int romlen;
-static bool header;
+static bool current_rom_has_header;
 static FILE * thisfile;
 
 asar_error_id openromerror;
@@ -479,6 +479,8 @@ int getsnesfreespace(int size, bool isforcode, bool autoexpand, bool respectbank
 bool openrom(const char * filename, bool confirm, bool header, std::string ips_filepath)
 {
 	closerom();
+	current_rom_has_header = header;
+
 	thisfile=fopen(filename, "r+b");
 	if (!thisfile)
 	{
@@ -516,6 +518,8 @@ bool openrom(const char * filename, bool confirm, bool header, std::string ips_f
 
 uint32_t closerom(bool save)
 {
+	bool header = current_rom_has_header;
+
 	uint32_t romCrc = 0;
 	if (thisfile && save && romlen)
 	{
