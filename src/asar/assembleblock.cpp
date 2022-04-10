@@ -1201,11 +1201,14 @@ void assembleblock(const char * block, bool isspecialline)
 		{
 			// RPG Hacker: This makes a pretty big assumption to calculate the size of opcodes.
 			// However, this should currently only really be used for pseudo opcodes, where it should always be good enough.
-			int opcode_size = ((0xFFFFFF & realsnespos) - addrToLinePos) / recent_opcode_num;
-			for (int i = 0; i < recent_opcode_num; ++i)
+			if (recent_opcode_num > 0)
 			{
-				extern AddressToLineMapping addressToLineMapping;
-				addressToLineMapping.includeMapping(thisfilename.data(), thisline + 1, addrToLinePos + (i * opcode_size));
+				int opcode_size = ((0xFFFFFF & realsnespos) - addrToLinePos) / recent_opcode_num;
+				for (int i = 0; i < recent_opcode_num; ++i)
+				{
+					extern AddressToLineMapping addressToLineMapping;
+					addressToLineMapping.includeMapping(thisfilename.data(), thisline + 1, addrToLinePos + (i * opcode_size));
+				}
 			}
 		}
 		numopcodes += recent_opcode_num;
@@ -2157,6 +2160,7 @@ void assembleblock(const char * block, bool isspecialline)
 				return;
 			}
 		}
+		asar_throw_warning(0, warning_id_feature_deprecated, "rep X : {command}", "Use while loops, unrolled loops, pseudo opcodes or other replacements");
 		repeatnext=rep;
 	}
 #ifdef SANDBOX
