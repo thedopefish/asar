@@ -3,17 +3,27 @@ import sys
 import urllib.request
 import os
 
-if len(sys.argv) != 2:
-	print("Usage: {} version_number".format(sys.argv[0]))
+if len(sys.argv) >= 2:
+	filename = "asar" + sys.argv[1] + ".zip"
+else:
+	filename = "asar_windows_x86.zip"
+
+if os.path.exists("asar/Release/asar-standalone.exe"):
+	binary_path = "asar/Release"
+elif os.path.exists("asar/Debug/asar-standalone.exe"):
+    binary_path = "asar/Debug"
+else:
+	print("Cannot find asar-standalone.exe, please make sure you've built the project first!")
 	sys.exit(1)
 
-zipf = zipfile.ZipFile("asar"+sys.argv[1]+".zip", 'x', compression=zipfile.ZIP_DEFLATED)
+zipf = zipfile.ZipFile(filename, 'x', compression=zipfile.ZIP_DEFLATED)
 
-build_server_prefix = lambda f, n: f"https://random.muncher.se/ftp/asar/windows/xp_compat/build/asar/{f}/MinSizeRel/{n}"
-with urllib.request.urlopen(build_server_prefix("bin", "asar.exe")) as resp:
-	exe_data = resp.read()
-with urllib.request.urlopen(build_server_prefix("lib", "asar.dll")) as resp:
-	dll_data = resp.read()
+f = open(binary_path+"/asar-standalone.exe", "rb")
+exe_data = f.read()
+f.close()
+f = open(binary_path+"/asar.dll", "rb")
+dll_data = f.read()
+f.close()
 
 zipf.writestr("asar.exe", exe_data)
 zipf.writestr("dll/asar.dll", dll_data)
