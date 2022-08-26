@@ -1748,13 +1748,21 @@ base $7E0000
 base off
 	rtl</code></pre>
 		<h4 id="skip">skip</h4>
-		<pre><code class="65c816_asar">skip {num_bytes}</code></pre>
-		The skip command moves the pc by <code>num_bytes</code> bytes. By specifying a negative value, the pc can be moved backwards.
+		<pre><code class="65c816_asar">skip {num_bytes}
+skip align {alignment} [offset {offset}]</code></pre>
+		The skip command moves the pc by <code>num_bytes</code> bytes. By specifying a negative value, the pc can be moved backwards. When <code>alignment</code> is given, skips to the next multiple of <code>alignment</code>, plus <code>offset</code> if it is specified. Note that the alignment must be a power of 2, if specified. Offset can also be negative, in that case it's treated exactly like <code>alignment+offset</code>. The seeked-to position will always be after the current SNES position, but it might be before the next multiple of <code>alignment</code>: see the last example.
 		<pre><code class="65c816_asar">org $008000
 skip 5
 ; pc is now at $008005
 skip -1
-; pc is now at $008004</code></pre>
+; pc is now at $008004
+skip align 16
+; pc is now at $008010
+skip align 16 offset 5
+; pc is now at $008015
+skip align $20 offset $17
+; pc is now at $008017
+</code></pre>
 		<h4 id="warnpc">warnpc</h4>
 		<pre><code class="65c816_asar">warnpc {snes_address}</code></pre>
 		The warnpc command checks if the current pc is <code>&gt; snes_address</code>. If that's the case, it throws an error. This is useful for detecting overflow errors.
@@ -2431,18 +2439,18 @@ endmacro
 </code></pre>
 
 In addition to named substitutions if the variadic token <code class="65c816_asar">...</code> is specified as the last parameter asar will allow an arbitrary number of parameters after all prior parameters have been satisfied.
-To access unnamed arguments of a variadic function they are declared numerically starting from 0 up to the number of provided parameters. To access the number of provided variadic arguments one may use <code class="65c816_asar">sizeof(...)</code>.
+To access unnamed parameters of a variadic macro, use the syntax <code class="65c816_asar">&lt;...[{math}]&gt;</code>, where <code class="65c816_asar">math</code> is any math expression evaluating to the index of a variadic parameter. These are declared numerically starting from 0 up to the number of provided parameters. To access the number of provided variadic arguments one may use <code class="65c816_asar">sizeof(...)</code>.
 Lastly, it is important to note that while traditionally macros do not parse defines at their creation variadic macros will.  This is to allow iteration of arguments by using defines.
 
 <pre><code class="65c816_asar">
 macro example0(...)
-	db sizeof(...), &lt;0&gt;	;04 01
+	db sizeof(...), &lt;...[0]&gt;	;04 01
 endmacro
 	
 macro example1(...)
 	!a #= 0
 	while !a &lt; sizeof(...)
-		db &lt;!a&gt;		;01 02 03
+		db &lt;...[!a]&gt;		;01 02 03
 		!a #= !a+1
 	endif
 endmacro
@@ -2450,7 +2458,7 @@ endmacro
 macro example2(named_parameter, ...)
 	!a #= 0
 	while !a &lt; sizeof(...)
-		db &lt;!a&gt;		;02 03 04 05 06 07
+		db &lt;...[!a]&gt;		;02 03 04 05 06 07
 		!a #= !a+1
 	endif
 	db &lt;named_parameter&gt;	;01
@@ -2459,7 +2467,7 @@ endmacro
 macro macro_with_optional_arguments(required, ...)
 	db &lt;required&gt;
 	if sizeof(...) &gt; 0
-		db &lt;0&gt;
+		db &lt;...[0]&gt;
 	end
 end
 
@@ -2945,11 +2953,16 @@ db "\\!define"
 db "something ""cool"""</code></pre>
 		<h4 id="fill">fillbyte/fill</h4>
 		<pre><code class="65c816_asar">fillbyte {byte}</code></pre>
-		<pre><code class="65c816_asar">fill {num}</code></pre>
-		The fillbyte and fill commands let you write a specific byte value to the ROM multiple times. The <code>byte</code> parameter of fillbyte specifies which value to write, wheres fill writes that value to the output ROM <code>num</code> times.
+		<pre><code class="65c816_asar">fill {num}
+fill align {alignment} [offset {offset}]</code></pre>
+		The fillbyte and fill commands let you write a specific byte value to the ROM multiple times. The <code>byte</code> parameter of fillbyte specifies which value to write, wheres fill writes that value to the output ROM <code>num</code> times. If <code>alignment</code> is specified, the value will be written repeatedly until the SNES address has the specified alignment, similar to <code>skip align</code>.
 		<pre><code class="65c816_asar">fillbyte $FF
 ; This writes $FF $FF $FF $FF $FF $FF $FF $FF
-fill 8</code></pre>
+fill 8
+org $008005
+; this writes $FF until SNES address $00800A (=$8008 + 2)
+fill align 8 offset 2
+</code></pre>
 		It's also possible to write 16-bit, 24-bit or 32-bit values with the fill command by using <code>fillword</code>, <code>filllong</code> or <code>filldword</code> instead of fillbyte. Note that the <code>num</code> parameter of fill still specifies the number of bytes to write in those cases. Values might get truncated as needed to exactly reach the specified number of bytes to write.
 		<h4 id="pad">padbyte/pad</h4>
 		<pre><code class="65c816_asar">padbyte {byte}</code></pre>
