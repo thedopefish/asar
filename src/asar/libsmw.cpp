@@ -128,12 +128,12 @@ namespace
 		void queue_for_ips(size_t i_begin, size_t i_end)
 		{
 			for (Interval& interval : intervals)
-				if (interval.i_begin <= i_begin && i_begin < interval.i_end)
+				if (interval.i_begin <= i_begin && i_begin <= interval.i_end)
 				{
 					interval.i_end = std::max(interval.i_end, i_end);
 					return;
 				}
-				else if (interval.i_begin <= i_end && i_end < interval.i_end)
+				else if (interval.i_begin <= i_end && i_end <= interval.i_end)
 				{
 					interval.i_begin = std::min(interval.i_begin, i_begin);
 					return;
